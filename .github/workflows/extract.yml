@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '*.zip'
+      - '.github/workflows/extract.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,50 +17,38 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Extract ZIP files
+      - name: Install unzip
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
+      - name: Extract ZIP
         shell: bash
         run: |
           set -e
-
           shopt -s nullglob
-          zip_files=(*.zip)
 
-          if [ ${#zip_files[@]} -eq 0 ]; then
-            echo "No ZIP files found in the repository root."
-            exit 0
-          fi
+          for z in *.zip; do
+            echo "Processing: $z"
 
-          for z in "${zip_files[@]}"; do
-            echo "Extracting: $z"
+            mkdir -p /tmp/edsora_extract
+            rm -rf /tmp/edsora_extract/*
+            unzip -oq "$z" -d /tmp/edsora_extract
 
-            tmp="$(mktemp -d)"
-            unzip -oq "$z" -d "$tmp"
+            rm -rf /tmp/edsora_extract/__MACOSX
 
-            rm -rf "$tmp/__MACOSX"
+            entries=(/tmp/edsora_extract/*)
 
-            entries=("$tmp"/* "$tmp"/.[!.]* "$tmp"/..?*)
-            filtered=()
-
-            for entry in "${entries[@]}"; do
-              [ -e "$entry" ] || continue
-              filtered+=("$entry")
-            done
-
-            if [ ${#filtered[@]} -eq 1 ] && [ -d "${filtered[0]}" ]; then
-              cp -a "${filtered[0]}/." .
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+              cp -a "${entries[0]}/." .
             else
-              cp -a "$tmp/." .
+              cp -a /tmp/edsora_extract/. .
             fi
 
-            rm -rf "$tmp"
+            rm -rf /tmp/edsora_extract
             git rm -f --ignore-unmatch "$z"
           done
 
-      - name: Commit extracted files
-        shell: bash
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -71,5 +60,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Extract ZIP files into repository"
+          git commit -m "Extract ZIP into repository"
           git push
