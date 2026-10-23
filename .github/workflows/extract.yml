@@ -17,39 +17,54 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install unzip
-        run: sudo apt-get update && sudo apt-get install -y unzip
+        with:
+          ref: ${{ github.ref_name }}
 
       - name: Extract ZIP
         shell: bash
         run: |
-          set -e
-          shopt -s nullglob
+          set -Eeuo pipefail
+          shopt -s nullglob dotglob
+
+          found=0
 
           for z in *.zip; do
-            echo "Processing: $z"
+            [ -f "$z" ] || continue
+            found=1
 
-            mkdir -p /tmp/edsora_extract
-            rm -rf /tmp/edsora_extract/*
-            unzip -oq "$z" -d /tmp/edsora_extract
+            echo "Extracting $z"
 
-            rm -rf /tmp/edsora_extract/__MACOSX
+            tmp="$(mktemp -d)"
+            unzip -oq "$z" -d "$tmp"
+            rm -rf "$tmp/__MACOSX"
 
-            entries=(/tmp/edsora_extract/*)
+            entries=()
+            for item in "$tmp"/*; do
+              [ -e "$item" ] || continue
+              entries+=("$item")
+            done
 
-            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+            if [ "${#entries[@]}" -eq 1 ] &&
+               [ -d "${entries[0]}" ]; then
               cp -a "${entries[0]}/." .
             else
-              cp -a /tmp/edsora_extract/. .
+              cp -a "$tmp/." .
             fi
 
-            rm -rf /tmp/edsora_extract
-            git rm -f --ignore-unmatch "$z"
+            rm -rf "$tmp"
+            git rm -f --ignore-unmatch -- "$z"
           done
 
-      - name: Commit and push
+          if [ "$found" -eq 0 ]; then
+            echo "No ZIP files found in repository root."
+            exit 1
+          fi
+
+      - name: Commit and push extracted files
+        shell: bash
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -60,5 +75,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Extract ZIP into repository"
-          git push
+          git commit -m "Extract Edsora ZIP files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
