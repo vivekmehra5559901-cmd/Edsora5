@@ -1,0 +1,75 @@
+name: Extract ZIP
+
+on:
+  push:
+    paths:
+      - '*.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract ZIP files
+        shell: bash
+        run: |
+          set -e
+
+          shopt -s nullglob
+          zip_files=(*.zip)
+
+          if [ ${#zip_files[@]} -eq 0 ]; then
+            echo "No ZIP files found in the repository root."
+            exit 0
+          fi
+
+          for z in "${zip_files[@]}"; do
+            echo "Extracting: $z"
+
+            tmp="$(mktemp -d)"
+            unzip -oq "$z" -d "$tmp"
+
+            rm -rf "$tmp/__MACOSX"
+
+            entries=("$tmp"/* "$tmp"/.[!.]* "$tmp"/..?*)
+            filtered=()
+
+            for entry in "${entries[@]}"; do
+              [ -e "$entry" ] || continue
+              filtered+=("$entry")
+            done
+
+            if [ ${#filtered[@]} -eq 1 ] && [ -d "${filtered[0]}" ]; then
+              cp -a "${filtered[0]}/." .
+            else
+              cp -a "$tmp/." .
+            fi
+
+            rm -rf "$tmp"
+            git rm -f --ignore-unmatch "$z"
+          done
+
+      - name: Commit extracted files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Extract ZIP files into repository"
+          git push
